@@ -1,0 +1,182 @@
+---
+title: "Big Data for Public Policy - Course Project"
+author: "Andreas Eckmann"
+date: "August 2020"
+output: html_document
+---
+
+```{r setup, results='hide', message=FALSE, warning=FALSE}
+rm(list=ls())
+# Load relevant packages
+library(tidyverse)
+library(haven)
+library(estimatr)
+library(readxl)
+library(plm)
+library(stargazer)
+library(Synth)
+```
+
+```{r wd}
+# Setting Working Directory
+#setwd("C:/Users/Andi Eckmann/Desktop/ETH Studium/MASTERSTUDIUM/2. Semester/Big Data for Public Policy/big_data_policy_2020/course_project/data/")
+#getwd()
+```
+```{r}
+# Read data
+data = read_excel("C:/Users/Andi Eckmann/Desktop/ETH Studium/MASTERSTUDIUM/2. Semester/Big Data for Public Policy/big_data_policy_2020/course_project/data/Cumm_and_ann_installed_cap_nach_bundesland.xlsx")
+```
+
+## 
+```{r q1}
+attach(data)
+str(data)
+summary(data)
+dim(data)
+data[1:14, 1:4]
+```
+
+### 2) Check for outliers in the tax on beer and in the fatality rate.
+```{r}
+summary(Installed_Cap)
+boxplot(Installed_Cap)
+summary(cum_installed_cap)
+boxplot(cum_installed_cap)
+```
+
+```{r}
+ggplot(data = data) +
+  geom_line(mapping = aes(x = Jahr, y = Installed_Cap, linetype = ENH_Bundesland, color= ENH_Bundesland),
+            show.legend = TRUE)
+```
+
+```{r}
+ggplot(data = data) +
+  geom_line(mapping = aes(x = Jahr, y = cum_installed_cap, linetype = ENH_Bundesland, color= ENH_Bundesland),
+            show.legend = TRUE)
+```
+
+```{r}
+ggplot(data = data) +
+  geom_line(mapping = aes(x = Jahr, y = cum_installed_cap_pc, linetype = ENH_Bundesland, color= ENH_Bundesland),
+            show.legend = TRUE)
+```
+```{r}
+ggplot(data = data) +
+  geom_line(mapping = aes(x = Jahr, y = cum_installed_cap_pa, linetype = ENH_Bundesland, color= ENH_Bundesland),
+            show.legend = TRUE)
+```
+
+## 2)
+For 1988, we even get a low significancy. These results are counter intuitive.
+Problem: Ommited variable bias!!
+-road conditions
+-age distribution
+-cultural differences
+-... (see slides)
+
+## 4)
+### 1) Do a simple linear OLS regression estimating the effect on the fatality rate of the increase in beer tax. How do you interpret the results?
+```{r}
+data2 = data %>%
+  filter(Jahr < 2020) %>%
+  mutate(Installed_Cap_pc2=Installed_Cap_pc*10^6)
+attach(data2)
+hist(Installed_Cap_pc2)
+summary(Installed_Cap_pc2)
+```
+
+
+```{r}
+model_ols = lm(Installed_Cap_pc2~`feed-in`, data = data2)
+coeftest(model_ols)
+```
+
+### 2) Plot the results using a scatter plot and a fitted line.
+```{r}
+plot(`feed-in`, Installed_Cap_pc2, col="blue", xlab = "feed-in", ylab="Installed_cap_pc [W/1000cap]")
+abline(model_ols, col=3, lwd=3)
+```
+We face the problem of OVB, missing a lot of information!
+
+### 3) Now, do a “fixed effect” regression using n-1 binary regressors for the states. For this, create dummies for all states (stated_*) and include them in the regression. How do you interpret the results?
+```{r}
+#no need to add dummy variable, just add states
+model_state = lm(Installed_Cap_pc2 ~ `feed-in` + ENH_Bundesland)
+summary(model_state)
+```
+
+These are changes over time which can not be explained by the feed-in
+
+```{r}
+Installed_Cap_pc2_predict = predict(model_state)
+
+ggplot(data = data2) +
+  geom_line(mapping = aes(x = `feed-in`, y = Installed_Cap_pc2_predict, color = ENH_Bundesland),
+            show.legend = TRUE)
+```
+
+
+```{r}
+data2 %>%
+  group_by(ENH_Bundesland, Jahr) %>%
+  summarize(mean_Installed_Cap_pc2 = mean(Installed_Cap_pc2)) %>%
+  ggplot(aes(x = Jahr, y = mean_Installed_Cap_pc2,
+             group = ENH_Bundesland, colour = ENH_Bundesland)) +
+  geom_point() +
+  geom_line() +
+  xlab("Year") + ylab("Mean fatality") +
+  scale_colour_viridis_d("State", end = 0.7)
+```
+
+## 5)
+### 1) Use the command plm to estimate the effect on the fatality rate of a change in the beer tax using a fixed effects regression model. Do you get the same results as in exercise 4? Explain your results.
+```{r}
+model_fe = plm(fatality ~ beertax,
+               data = data,
+               index = c("state", "year"),
+               model = "within") #within = fixed effects
+summary(model_fe)
+```
+
+Looking at R-squared. Was 0.9 before (ex 4) but now only 0.04 (within sates). This means, we explain about 4% of the variation in the data.
+Holding constant = controlling for
+
+```{r}
+pFtest(model_fe, model_ols)
+#If the p-value is < 0.05 then use fixed effects
+```
+
+## 6)
+### 1) Estimate the effect on the fatality rate of a change in the beer tax controlling for time fixed effects AND state fixed effects using a dummy variable approach and also the panel FE model. Do you get the same results as in exercise 4? Explain your results.
+```{r}
+model_state_year = lm(fatality ~ beertax + as.factor(state) + as.factor(year))
+coeftest(model_state_year)
+```
+
+We find a stronger effect (-0.64) decrease in fatality.
+
+Difference using as.factor() or just the variable: As soon as you work with dummy variables, use as.factor. Make sure years are not continues variables. as.factor sets a dummy for each discrete year!
+
+We accounted for the fixed effects state and time. Looking at changes that are constant over time but vary across states AND are constant across states but vary over time we can control for these effects.
+
+## 7)
+### 1) Do a random effect regression and estimate the effect of a change in the beer tax on the fatality rate. How do you interpret your results?
+```{r}
+
+```
+
+## 8)
+### 1) Do a Hausman test to test whether you should use a fixed effects or a random effects model.
+```{r}
+
+```
+
+## 9)
+### 1) Compare the results of the panel regression model (state and time fixed-effects) with and without clustered standard errors (at the state level). How does the use of clustered standard errors affect your results with respect to the question whether the beer tax can reduce the fatality rate?
+```{r}
+
+```
+
+## 10)
+### 1) Use the fatality data to analyze the following research questions: Is the taxation of beer an appropriate policy instrument to reduce the fatality rate? In order to analyze the questions, do a systematic panel regression analysis. You can use the table on slides 27 and 28 as a template of a stepwise approach to address your research question. Make sure that you interpret your results with respect to the effect of the regressors, their statistical significance and their economic meaning.
